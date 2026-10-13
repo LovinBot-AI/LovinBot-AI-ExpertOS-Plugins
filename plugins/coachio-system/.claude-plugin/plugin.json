@@ -1,0 +1,8 @@
+{
+  "name": "coachio-system",
+  "description": "Skill for the Coachio Funnel Config MCP — teaches Claude Code how to safely use the funnel and course configuration tools (funnels, landing/checkout/success pages, emails, broadcasts, leads, discounts with scope, media, analytics, and course authoring: courses, curriculum, publish readiness, course landing, course emails).",
+  "version": "0.7.2",
+  "author": {
+    "name": "Coachio"
+  }
+}
