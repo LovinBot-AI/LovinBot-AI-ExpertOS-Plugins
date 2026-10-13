@@ -4,11 +4,11 @@ Tools grouped by concern. ⚠ = destructive / real-effect → requires `confirm=
 Read tools and content-config tools run freely. Output mirrors the admin REST schemas.
 
 ## Products
-- `list_products(type?, status?)` — list with totals (type: course|service|digital|other|agents_skill|skills_pack; status: draft|active|archived).
-- `get_product(product_id)` — full product incl. linked courses.
-- `create_product(name, slug, type, base_price?, status?, description?, thumbnail_url?, course_ids?)` — slug kebab-case + unique; type includes `agents_skill` + `skills_pack`; `course_ids` not allowed for `agents_skill`/`skills_pack`. A funnel needs an existing product, so create one here first (for a `skills_pack`, create SkillPack(s) in the catalog and attach with `attach_skill_pack_to_funnel` after).
-- `update_product(product_id, …)` — price/name changes refresh published funnels' landing cache.
-- `delete_product(product_id, confirm)` ⚠ — permanent; may affect funnels referencing it.
+- `list_products(item_type?)` — list with totals; `item_type` (`course`|`skill_pack`) keeps only products containing an item of that type. Each product: id, name, description, base_price, `items` [{item_type, item_id, title, slug, sort_order}], `item_types`, `kind` (`empty`|`course`|`skill_pack`|`combo`).
+- `get_product(product_id)` — full product incl. its ordered items.
+- `create_product(name, base_price?, description?, items?)` — a product is only the offer (name/price); what buyers receive is `items` = ordered `{item_type, item_id}` list (`course`|`skill_pack`, may mix both), usually attached later. No slug/type/status. A funnel needs an existing product, so create one here first.
+- `update_product(product_id, name?, description?, base_price?, items?, force?)` — `items` replaces the full mapping (`[]` clears, omit to keep). Leaving a product sold by a PAID published funnel with no items, or raising an empty product's price above 0, is blocked (`funnel_has_no_deliverable`) unless `force=true`. Price/name changes refresh published funnels' landing cache.
+- `delete_product(product_id, confirm)` ⚠ — permanent; drops its item mapping (courses/packs are kept); breaks funnels referencing it.
 
 ## Funnels
 - `list_funnels(product_id?, status?)` — list with totals.
@@ -16,7 +16,7 @@ Read tools and content-config tools run freely. Output mirrors the admin REST sc
 - `create_funnel(product_id, title, slug, currency?, zalo_link?)` — starts `draft`.
 - `update_funnel(funnel_id, title?, slug?, currency?, zalo_link?, checkout_config?, success_config?, variables?, variables_meta?)` — refreshes landing cache.
 - `clone_funnel_tool(funnel_id, slug, title?)` — deep copy into a new draft funnel.
-- `set_funnel_status(funnel_id, status, confirm)` ⚠ — publish/unpublish.
+- `set_funnel_status(funnel_id, status, confirm, force?)` ⚠ — publish/unpublish. Publishing a PAID funnel whose product has no items is blocked (`funnel_has_no_deliverable`); `force=true` only after the operator confirms buyers should receive nothing from the product.
 - `delete_funnel(funnel_id, confirm)` ⚠ — permanent.
 
 ## Landing & SEO
@@ -112,9 +112,9 @@ Grant tracking / audit:
 
 ## Courses
 - `list_courses(status?, category_id?)`, `get_course(course_id)`.
-- `create_course(title, level, slug?, category_id?, thumbnail_url?, description?, short_description?, …, sale_price?, discount_percent?, product_id?, variables?, variables_meta?, success_config?)` — starts `draft`.
+- `create_course(title, level, slug?, category_id?, thumbnail_url?, description?, short_description?, …, sale_price?, discount_percent?, product_id?)` — starts `draft`. `product_id` appends the course to that product's items (idempotent).
 - `update_course(course_id, …subset…)` — does NOT change status; use `publish_course`/`set_course_status`.
-- `delete_course(course_id, confirm)` ⚠ — permanent.
+- `delete_course(course_id, confirm, force?)` ⚠ — permanent. Blocked if learners are enrolled (`deliverable_has_learners` — archive instead, no override). Blocked while a published funnel sells it (`deliverable_on_sale`) unless `force=true`, which also removes it from those products.
 
 ## Course categories
 - `list_course_categories()`.
@@ -124,7 +124,7 @@ Grant tracking / audit:
 ## Course publish + status
 - `get_course_publish_readiness(course_id)` — checklist (course detail, curriculum, payment) + `can_publish` + `draft_lesson_count` (lessons publishing will auto-promote).
 - `publish_course(course_id, confirm)` ⚠ — gated by readiness; raises a tool error describing what's missing if not ready. Cascades to draft lessons.
-- `set_course_status(course_id, status_value, confirm)` ⚠ — `draft`/`archived` only (use `publish_course` to publish).
+- `set_course_status(course_id, status_value, confirm)` ⚠ — `draft`/`archived` only (use `publish_course` to publish). Archiving keeps learners' access but does NOT stop funnel sales; unpublish the funnels that still sell the course to stop selling.
 
 ## Course curriculum
 - `get_curriculum(course_id)` — sections + lessons + materials.
@@ -156,12 +156,12 @@ Event = a workshop that fan-outs reminder messages to N Zalo groups. Each event 
 - `delete_zalo_event(event_id, confirm)` ⚠ — hard-delete event + slots; rejected if it still has pending slots (cancel first).
 
 ## Skill packs (standalone catalog + funnel attach)
-A `skills_pack` product sells access to one or more **SkillPacks** — a standalone,
-reusable catalog entity (title/description/banner + one connected **private GitHub
-repo**), independent of any funnel. The same pack can attach to many funnels, and one
-funnel can sell many packs (M:N). Admin connects a pack's repo (read-only PAT, stored
+A product sells **SkillPacks** through its `items` (`item_type: skill_pack`), alone or
+mixed with courses. A SkillPack is a standalone, reusable catalog entity
+(title/description/banner + one connected **private GitHub repo**); the same pack can
+sit in many products. Admin connects a pack's repo (read-only PAT, stored
 encrypted, never echoed) and **syncs** an item manifest; a purchase records a
-`SkillPackGrant` per attached pack, unlocking the WHOLE pack. Buyers browse/download
+`SkillPackGrant` per pack in the product, unlocking the WHOLE pack. Buyers browse/download
 items from their authenticated learner dashboard — NOT the funnel landing. An "item" =
 a repo folder containing a `SKILL.md` (content) or a `.zip` (zip); files > 100 MB are
 flagged unservable.
@@ -170,16 +170,16 @@ flagged unservable.
 - `list_skill_packs(status?)` — read-only; catalog packs newest-first.
 - `get_skill_pack(skill_pack_id)` — read-only; metadata + non-secret repo connection (provider, repo, ref, root_path, connected, synced sha/time, items_count). Never returns the token.
 - `create_skill_pack(title, description?, banner_url?, status?)` — creates an empty pack, not attached to any funnel yet.
-- `update_skill_pack(skill_pack_id, title?, description?, banner_url?, status?)`.
-- `delete_skill_pack(skill_pack_id, confirm)` ⚠ — blocked (409) if any buyer already owns it (has a grant) or it's still attached to a funnel; detach first.
+- `update_skill_pack(skill_pack_id, title?, description?, banner_url?, status?)` — `status='archived'` keeps buyers' access but does NOT stop funnel sales; unpublish the funnels that still sell the pack to stop selling.
+- `delete_skill_pack(skill_pack_id, confirm, force?)` ⚠ — blocked if any buyer owns it (`deliverable_has_learners` — archive instead, no override); blocked while a published funnel sells it (`deliverable_on_sale`) unless `force=true`, which also removes it from those products.
 - `connect_skill_pack_repo(skill_pack_id, repo, token, ref?, root_path?, provider?, confirm)` ⚠ — validate reachability + store the encrypted PAT. Real effect (stores a secret) → `confirm=true`.
 - `sync_skill_pack(skill_pack_id)` — walk the repo tree, upsert items (preserve admin overrides, drop stale), record the commit sha. Returns `{total, zip, content, unservable, removed, truncated}`.
 - `list_skill_pack_items(skill_pack_id)` — read-only; synced items (id, skill_key, title, kind `zip`|`content`, is_visible, is_servable, sort), incl. hidden/unservable.
 - `edit_skill_pack_item(skill_pack_id, item_id, title?, description?, is_visible?, sort?)` — curate a synced item (no repo change).
 
-**Funnel attach** (`skills_pack` funnels only — 400 otherwise):
-- `attach_skill_pack_to_funnel(funnel_id, skill_pack_id)` — adds at the end of the current order; no-op if already attached.
-- `detach_skill_pack_from_funnel(funnel_id, skill_pack_id)` — no-op if not attached.
+**Funnel attach** (writes the `items` of the product the funnel sells — funnels sharing a product share its packs):
+- `attach_skill_pack_to_funnel(funnel_id, skill_pack_id)` — adds at the end of the product's items; no-op if already attached.
+- `detach_skill_pack_from_funnel(funnel_id, skill_pack_id, force?)` — no-op if not attached; removing the product's LAST item while a paid funnel is published needs `force=true`.
 
 **Delivery** (buyer-facing; replaces v1's landing + localStorage flow). Buyers see and
 open owned packs from their authenticated learner dashboard, gated by session (401) +

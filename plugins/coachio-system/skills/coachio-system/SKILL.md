@@ -41,8 +41,8 @@ content, add custom slots, register/cancel real n8n-scheduled sends, cancel/dele
 read groups + connection status). It also handles **standalone skill packs**: create
 reusable SkillPacks in a catalog (independent of any funnel), connect each pack's
 private GitHub repo (encrypted PAT), sync its item manifest, curate items, and
-attach/detach packs to `skills_pack` funnels (M:N — one pack can sell on many funnels,
-one funnel can sell many packs) — buyers then unlock/download owned packs from their
+attach/detach packs to the product a funnel sells (a product holds any mix of courses
+and packs; one pack can sit in many products) — buyers then unlock/download owned packs from their
 authenticated learner dashboard.
 
 It does **NOT** handle: payment processing (beyond course price fields), quiz authoring,
@@ -96,6 +96,7 @@ The server also exposes workflow **prompts** — prefer them for multi-step jobs
   — empty list = global. A default (auto-apply) owner must lie within a non-empty scope.
 - **Build a landing:** create_funnel → create_section (×N) → update_landing_seo →
   get_landing_preview → (on approval) set_funnel_status('published', confirm=true).
+- **Guard rails (`force`):** a PAID published funnel must sell a product with items; deleting a course/pack someone owns is impossible (archive it); deleting one still on sale needs `force`. On a `[code: …]` tool error, explain it to the operator — never retry with `force=true` on your own.
 - **Build a course:** create_course → create_course_section/create_lesson (×N) →
   get_course_publish_readiness → (on approval) publish_course(confirm=true). Publish is
   gated by readiness — it raises an error describing what's missing (e.g. no lessons)
