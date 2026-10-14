@@ -1,6 +1,6 @@
-# Coachio Claude Plugins
+# LovinBot AI ExpertOS Plugins
 
-A [Claude Code](https://code.claude.com) plugin marketplace for Coachio.
+A [Claude Code](https://code.claude.com) plugin marketplace for ExpertOS (marketplace name: `coachio`).
 
 It currently ships one plugin, **`coachio-system`**, which installs the skill that
 teaches Claude Code how to drive the **Coachio Funnel Config MCP** server — so admins
@@ -17,19 +17,21 @@ discounts, the media library and analytics).
 ### 1. Add the marketplace and install the plugin
 
 ```bash
-/plugin marketplace add sonlovinbot/Coachio-Claude-Plugins
+/plugin marketplace add LovinBot-AI/LovinBot-AI-ExpertOS-Plugins
 /plugin install coachio-system@coachio
 ```
 
 `/plugin marketplace add` also accepts the full git URL:
-`https://github.com/sonlovinbot/Coachio-Claude-Plugins.git`
+`https://github.com/LovinBot-AI/LovinBot-AI-ExpertOS-Plugins.git`
+
+To update later: `/plugin update coachio-system@coachio`.
 
 ### 2. Register the MCP server
 
 The plugin installs the **skill** (how to use the tools). You still connect Claude Code
 to your MCP server, which needs your deployment URL and admin secret. Get the exact
-command — with the secret pre-filled — from the **System Admin → MCP** page in your
-Coachio dashboard, or run:
+command — with the secret pre-filled — from the **AI & MCP → Admin MCP** page in your
+admin dashboard (`/admin/ai-mcp/admin-mcp`), or run:
 
 ```bash
 claude mcp add --transport http coachio-system \
