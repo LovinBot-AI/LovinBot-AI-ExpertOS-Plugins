@@ -159,8 +159,8 @@ Event = a workshop that fan-outs reminder messages to N Zalo groups. Each event 
 A product sells **SkillPacks** through its `items` (`item_type: skill_pack`), alone or
 mixed with courses. A SkillPack is a standalone, reusable catalog entity
 (title/description/banner + one connected **private GitHub repo**); the same pack can
-sit in many products. Admin connects a pack's repo (read-only PAT, stored
-encrypted, never echoed) and **syncs** an item manifest; a purchase records a
+sit in many products. Admin connects a pack's repo through a **GitHub App installation** (read-only, repo-scoped
+short-lived tokens; no secret stored) and **syncs** an item manifest; a purchase records a
 `SkillPackGrant` per pack in the product, unlocking the WHOLE pack. Buyers browse/download
 items from their authenticated learner dashboard — NOT the funnel landing. An "item" =
 a repo folder containing a `SKILL.md` (content) or a `.zip` (zip); files > 100 MB are
@@ -168,11 +168,12 @@ flagged unservable.
 
 **Catalog** (independent of any funnel):
 - `list_skill_packs(status?)` — read-only; catalog packs newest-first.
-- `get_skill_pack(skill_pack_id)` — read-only; metadata + non-secret repo connection (provider, repo, ref, root_path, connected, synced sha/time, items_count). Never returns the token.
+- `get_skill_pack(skill_pack_id)` — read-only; metadata + non-secret repo connection (provider, repo, ref, root_path, connected, synced sha/time, items_count). Never returns credentials.
 - `create_skill_pack(title, description?, banner_url?, status?)` — creates an empty pack, not attached to any funnel yet.
 - `update_skill_pack(skill_pack_id, title?, description?, banner_url?, status?)` — `status='archived'` keeps buyers' access but does NOT stop funnel sales; unpublish the funnels that still sell the pack to stop selling.
 - `delete_skill_pack(skill_pack_id, confirm, force?)` ⚠ — blocked if any buyer owns it (`deliverable_has_learners` — archive instead, no override); blocked while a published funnel sells it (`deliverable_on_sale`) unless `force=true`, which also removes it from those products.
-- `connect_skill_pack_repo(skill_pack_id, repo, token, ref?, root_path?, provider?, confirm)` ⚠ — validate reachability + store the encrypted PAT. Real effect (stores a secret) → `confirm=true`.
+- `list_github_installations(include_repos?)` — read-only; GitHub accounts connected to the workspace: `{installation_id, account_login, account_type, status, repos_count, repos_synced_at, packs_using, repos?}`; `include_repos=true` adds the allowed `full_name` list. MCP cannot install or refresh access: the admin connects GitHub once in **Settings › GitHub accounts** (browser). A repo missing from the list → admin uses "Refresh repository access" there.
+- `connect_skill_pack_repo(skill_pack_id, installation_id, repo, ref?, root_path?, provider?, confirm)` ⚠ — `repo` ('owner/name' or URL) must be in that installation's allowed repos; validates reachability, stores no token. Real effect → `confirm=true`. Flow: `list_github_installations(include_repos=true)` → `connect_skill_pack_repo(confirm=true)` → `sync_skill_pack`.
 - `sync_skill_pack(skill_pack_id)` — walk the repo tree, upsert items (preserve admin overrides, drop stale), record the commit sha. Returns `{total, zip, content, unservable, removed, truncated}`.
 - `list_skill_pack_items(skill_pack_id)` — read-only; synced items (id, skill_key, title, kind `zip`|`content`, is_visible, is_servable, sort), incl. hidden/unservable.
 - `edit_skill_pack_item(skill_pack_id, item_id, title?, description?, is_visible?, sort?)` — curate a synced item (no repo change).
