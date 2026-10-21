@@ -40,7 +40,7 @@ fan-out reminder messages to Zalo groups (create event + auto default slots, edi
 content, add custom slots, register/cancel real n8n-scheduled sends, cancel/delete events,
 read groups + connection status). It also handles **standalone skill packs**: create
 reusable SkillPacks in a catalog (independent of any funnel), connect each pack's
-private GitHub repo (encrypted PAT), sync its item manifest, curate items, and
+private GitHub repo (GitHub App installation, repo-scoped read-only access), sync its item manifest, curate items, and
 attach/detach packs to the product a funnel sells (a product holds any mix of courses
 and packs; one pack can sit in many products) — buyers then unlock/download owned packs from their
 authenticated learner dashboard.
