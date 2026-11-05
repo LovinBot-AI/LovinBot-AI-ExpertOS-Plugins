@@ -3,6 +3,8 @@
 Tools grouped by concern. ⚠ = destructive / real-effect → requires `confirm=true`.
 Read tools and content-config tools run freely. Output mirrors the admin REST schemas.
 
+Tools of an app that is switched off in **Admin › Apps** (or paused because a required app is off) are hidden from the tool list and refused on call with `"<App> is off for this workspace. Turn it on in Admin › Apps."`. Core tools (media, leads, skill packs, GitHub installations, site homepage SEO) are always available. A tool needs the same app(s) as its admin screen: course SEO = Courses; funnel email templates and `get_funnel_analytics` = Funnels; funnel orders (`funnel_orders_summary`, `list_funnel_orders`, `get_funnel_order`) = Sales; broadcasts = Funnels **and** Email (both must be on).
+
 ## Products
 - `list_products(kind?)` — list with totals; `kind` = `course`|`skill_pack`|`external`. Each product: id, name, description, base_price, `deliverable` ({type, id, title, slug} or null), `kind`.
 - `get_product(product_id)` — one product incl. its deliverable.
@@ -67,6 +69,7 @@ how you say "anyone who fills the form gets the preview".
 - Anchors must be unique within a landing; all writes refresh the landing cache.
 
 ## Course & Site SEO
+_Course SEO needs Courses; site SEO is core (always available)._
 - `get_course_seo(course_id)` — read raw SEO fields + resolved metadata for a course.
 - `update_course_seo(course_id, …)` — update course SEO fields (empty string clears; omitting leaves unchanged); returns raw + resolved metadata. Prompts: `seo_audit_course`.
 - `get_site_seo()` — read raw SEO fields + resolved metadata for the root site homepage.
@@ -84,6 +87,7 @@ how you say "anyone who fills the form gets the preview".
 - Editable keys: `receipt`, `waiting_payment` only (course / skill-pack credential emails use built-in wording). Variables include `{{brand_name}}` (tenant name).
 
 ## Broadcasts
+_Funnel campaigns: needs Funnels and Email._
 - `list_broadcasts(funnel_id)`, `get_broadcast(cid)`, `create_broadcast(funnel_id, …)`, `update_broadcast(cid, …)`.
 - `send_broadcast(cid, confirm)` ⚠ — real dispatch to the audience. Requires a verified sending domain (Settings → Email); otherwise returns code `email_sending_not_connected` (409). Scheduled campaigns wait while no sending domain is verified and resume once it is. Suppressed recipients and send-time limits are not reported in this response.
 
@@ -104,7 +108,34 @@ how you say "anyone who fills the form gets the preview".
 - `upload_media(filename, url? | base64_data?)` — upload from a URL or base64; jpg/png/webp/gif ≤ 15 MB, must be a valid image (else 400). Returns the asset incl. `width`/`height`.
 - `delete_media(asset_id, confirm)` ⚠.
 
+## Expert profile (core)
+_Draft → publish, optimistic `version` (stale → `version_conflict`: re-read and retry). Writes return the admin view: `version`, `draft`, `changed_sections`, `published_at`, `agent`, `strength {done,total,percent,next[]}`, `counts {placeholders, waiting_reply}`, `about_url`._
+- `get_expert_profile()` — current draft (created empty on first call).
+- `update_expert_profile(version, identity?, stats?, about?, expertise?, journey?, credentials?, social?, reviews?, health?, layout?)` — each sent section REPLACES the stored one; omitted ones are kept.
+  - `identity`: `display_name` ≤40 (empty = brand name), `headline` ≤40, `working_since` (year), `role_badge` ≤24, `cover {media_id, focal_x, focal_y}`, `avatar {mode 'photo'|'face', media_id, face, ring 'brand'|'green'|'orange'|'ink'}`. Images = media-library ids, pre-cropped by you: cover 5:2 (1600×640), avatar 1:1 (800×800); `url`, `crop`, `original_media_id` are server-managed.
+  - `stats`: `show_rating`, `show_members`, `show_products`, `show_skills`, `hide_below` (0–1000).
+  - `about`: `bio` ≤200 plain text, no URLs; `story_eyebrow` ≤40; `story_title` ≤60; `story_html` ≤2000 text chars, tags `p br strong em ul ol li a[href https|mailto]` (others stripped).
+  - `expertise`: ≤6 `{name ≤30, color? 'blue'|'green'|'orange'|'red'|'ink'}` (unique names; no color = auto).
+  - `journey`: `eyebrow`, `title`, ≤8 `milestones {year, text ≤90}`.
+  - `credentials`: ≤12 `{id (uuid, keep existing), name ≤120, issuer, year?, visible}`; template text in `[…]` brackets counts as a placeholder (see `counts.placeholders`).
+  - `social`: `links [{platform 'facebook'|'youtube'|'instagram'|'tiktok'|'zalo'|'website', url (https), visible}]`, `empty_mode 'hide'|'coming_soon'`.
+  - `reviews`: `default_sort 'newest'|'helpful'`, `show_tab`, `show_breakdown`.
+  - `health`: `note` ≤240, `show_on_products`.
+  - `layout`: `main_blocks [{key 'story'|'expertise'|'journey'|'credentials'|'social'|'featured_reviews'|'rating_summary', visible}]` (order = display order), `default_tab 'about'|'reviews'`.
+- `publish_expert_profile(version, confirm)` ⚠ — draft goes live on `/about`.
+- `discard_expert_profile_draft(version, confirm)` ⚠ — draft := published (or defaults).
+- `update_expert_profile_agent_settings(share?, include_credentials?, include_health_note?)` — live at once; what learners' AI agents may read.
+
+## Reviews (core)
+_Live writes. Items: `id, target {type,id,title,url}, rating, body, photos, author {name, email}, reply, status, featured_position, helpful_count, created_at`._
+- `list_reviews(filter? 'all'|'no_reply'|'pinned'|'hidden', target_type? 'course', target_id?, page?, page_size? ≤50)` — also `total`, `counts`, `featured`.
+- `reply_to_review(review_id, body)` — create/replace the expert reply (plain text ≤1000).
+- `delete_review_reply(review_id, confirm)` ⚠.
+- `pin_review(review_id, pinned)` — published 4–5★ with text only (`not_pinnable`), max 3 (`featured_full`).
+- `set_review_visibility(review_id, status 'hidden'|'published', confirm?)` — hiding needs `confirm=true` ⚠ and unpins.
+
 ## Analytics & Orders (read-only)
+_`get_funnel_analytics` needs Funnels; the three order tools need Sales._
 - `get_funnel_analytics(funnel_id, start_date?, end_date?)` — window capped at 31 days.
 - `funnel_orders_summary(…)`, `list_funnel_orders(…)`, `get_funnel_order(order_id)`.
 
