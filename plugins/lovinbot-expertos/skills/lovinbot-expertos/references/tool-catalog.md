@@ -83,13 +83,19 @@ _Course SEO needs Courses; site SEO is core (always available)._
 
 ## Email templates
 - `list_email_templates(funnel_id)`, `update_email_template(funnel_id, template_key, enabled?, subject?, html_body?)`, `preview_email_template(funnel_id, template_key)`.
-- `test_send_email(funnel_id, template_key, to_email, confirm)` ⚠ — real send to one address. Sends from the tenant's verified sending domain when one is verified (Settings → Email); otherwise the platform sender. Returns `[code: recipient_suppressed]` (422, address on suppression list) or `[code: daily_limit_reached]` (429, platform daily cap) instead of a false `sent`; never gated by 409 (sender AUTO).
-- Editable keys: `receipt`, `waiting_payment` only (course / skill-pack credential emails use built-in wording). Variables include `{{brand_name}}` (tenant name).
+- `test_send_email(funnel_id, template_key, to_email, confirm)` ⚠ — real send to one address. Sends from the tenant's verified sending domain when one is verified (Email → Sending); otherwise the platform sender. Returns `[code: recipient_suppressed]` (422, address on suppression list) or `[code: daily_limit_reached]` (429, platform daily cap) instead of a false `sent`; never gated by 409 (sender AUTO).
+- Editable keys: `receipt`, `waiting_payment`, `payment_rejected` (course / skill-pack credential emails use built-in wording). `payment_rejected` is sent to the buyer when the owner rejects a manual bank-transfer order and also offers `{{reject_reason}}`. Variables include `{{brand_name}}` (tenant name) and `{{payment_deadline_note}}` (deadline line for SePay orders, "tap I have transferred" hint for manual-transfer orders).
+
+## Notification settings (core)
+Automatic (transactional) emails the platform sends for the workspace: to the expert (`owner_*`) and to students (`learner_*`). Not tied to an app switch.
+- `list_notification_settings()` → `{items, total}`; each item `{type, audience ('owner'|'learner'), enabled, locked, default_enabled, updated_at}` in display order. Types: `owner_new_order`, `owner_order_awaiting`, `owner_new_student`, `owner_weekly_digest`, `owner_system`, `learner_order_confirmation`, `learner_enrollment`, `learner_study_reminder`.
+- `update_notification_setting(type, enabled)` — turn one type on/off; returns the updated item. Changes behaviour only, sends nothing (no `confirm`). `owner_system` (domain / payment account / email sending problems) is `locked`: always on, returns `[code: notification_type_locked]` (422). Unknown `type` → tool error listing the valid values.
+- Funnel orders: the learner order confirmation is sent only when `learner_order_confirmation` is on AND the funnel's own email template (`receipt`, see Email templates) is enabled. Owner emails always come from the platform sender; learner emails from the verified sending domain when connected (Email → Sending), else the platform sender.
 
 ## Broadcasts
 _Funnel campaigns: needs Funnels and Email._
 - `list_broadcasts(funnel_id)`, `get_broadcast(cid)`, `create_broadcast(funnel_id, …)`, `update_broadcast(cid, …)`.
-- `send_broadcast(cid, confirm)` ⚠ — real dispatch to the audience. Requires a verified sending domain (Settings → Email); otherwise returns code `email_sending_not_connected` (409). Scheduled campaigns wait while no sending domain is verified and resume once it is. Suppressed recipients and send-time limits are not reported in this response.
+- `send_broadcast(cid, confirm)` ⚠ — real dispatch to the audience. Requires a verified sending domain (Email → Sending); otherwise returns code `email_sending_not_connected` (409). Scheduled campaigns wait while no sending domain is verified and resume once it is. Suppressed recipients and send-time limits are not reported in this response.
 
 ## Leads (read-only)
 - `list_leads(funnel_id?, status?, email?, converted?, created_from?, created_to?, …)`.
@@ -138,6 +144,7 @@ _Live writes. Items: `id, target {type,id,title,url}, rating, body, photos, auth
 _`get_funnel_analytics` needs Funnels; the three order tools need Sales._
 - `get_funnel_analytics(funnel_id, start_date?, end_date?)` — window capped at 31 days.
 - `funnel_orders_summary(…)`, `list_funnel_orders(…)`, `get_funnel_order(order_id)`.
+- Order `status` filter (validated; an unknown value is a tool error): `ALL`, `PENDING`, `AWAITING_CONFIRMATION` (manual bank-transfer order the buyer marked as paid, waiting for the owner), `SUCCESS` (default), `REJECTED` (refused by the owner), `CANCELLED`, `EXPIRED`, `FAILED`. `funnel_orders_summary` always aggregates `SUCCESS` orders; use `list_funnel_orders(status="AWAITING_CONFIRMATION")` for the owner's to-confirm worklist. Confirming / rejecting orders is admin-UI only (no MCP tool).
 
 ## Capture token
 - `get_capture_token(funnel_id)` — current token (generated if absent).
@@ -161,14 +168,14 @@ _`get_funnel_analytics` needs Funnels; the three order tools need Sales._
 Gift packages (perks + external links) delivered two ways: **automations** (auto-grant on a
 funnel trigger) and **campaigns** (one-off send to a targeted audience). A grant ledger makes
 every delivery once-per-recipient; resends re-send the email only, never re-grant perks.
-Email gate: campaign, automation and gift delivery emails require a verified sending domain (Settings → Email). Without it these return code `email_sending_not_connected` (409): `send_gift_campaign`, `retry_gift_campaign`, `resend_gift_grant`, `bulk_retry_gift_grants`, `create_gift_automation` / `update_gift_automation` (only when the result is active), `test_send_gift_email`. A grant made while the domain is not verified keeps its perks; its email is `skipped` (`email_not_connected`) and is not auto-retried, so resend it once the domain is verified. `test_send_gift_email` can also return `[code: recipient_suppressed]` (422) or `[code: daily_limit_reached]` (429, platform daily cap). `test_send_gift_account_email` (login email) is not gated and falls back to the platform sender, but can return the same 422/429 codes.
+Email gate: campaign, automation and gift delivery emails require a verified sending domain (Email → Sending). Without it these return code `email_sending_not_connected` (409): `send_gift_campaign`, `retry_gift_campaign`, `resend_gift_grant`, `bulk_retry_gift_grants`, `create_gift_automation` / `update_gift_automation` (only when the result is active), `test_send_gift_email`. A grant made while the domain is not verified keeps its perks; its email is `skipped` (`email_not_connected`) and is not auto-retried, so resend it once the domain is verified. `test_send_gift_email` can also return `[code: recipient_suppressed]` (422) or `[code: daily_limit_reached]` (429, platform daily cap). `test_send_gift_account_email` (login email) is not gated and falls back to the platform sender, but can return the same 422/429 codes.
 
 Packages + email composing:
 - `list_gifts(include_archived?)`, `get_gift(gift_id)`.
 - `create_gift(name, description?, internal_config?, external_items?)` — `internal_config` = `{course_ids, skill_pack_ids}` (`course_ids` = list of course ids to enroll the recipient into as an active student; `skill_pack_ids` = list of skill pack ids to grant ownership of, reachable via the recipient's skills dashboard and linked in the gift email via `{{skills_dashboard_url}}`; either alone still creates their account); `external_items` = list of `{label, url, description?}`. A gift needs ≥1 internal perk or 1 external item.
 - `update_gift(gift_id, …, is_archived?)`, `archive_gift(gift_id, confirm)` ⚠ — soft-archive (ledger kept); restore via `update_gift(is_archived=false)`.
 - `preview_gift_email(gift_ids, email_subject?, email_html?)` / `test_send_gift_email(to_email, gift_ids, …)` — delivery email; tokens `{{recipient_name}}`, `{{access_token}}` (raw login token — append `?token=` to any route to auto-login, e.g. a gifted course `.../courses-page/<slug>?token={{access_token}}`). The URL tokens are URL only — wrap each in your own `<a>` button; each is empty unless the gift grants that perk / creates an account.
-- `preview_gift_account_email(email_subject?, email_html?)` / `test_send_gift_account_email(to_email, …)` — new-account login email; tokens `{{recipient_name}}`, `{{login_email}}`, `{{password}}`, `{{login_url}}` (URL only — wrap in your own `<a>` button). Blank → default template.
+- `preview_gift_account_email(email_subject?, email_html?)` / `test_send_gift_account_email(to_email, …)` — new-account login email; tokens `{{recipient_name}}`, `{{login_email}}`, `{{set_password_url}}` (one-time link where the recipient sets their own password, valid 7 days — URL only, wrap in your own `<a>` button; no password is ever emailed, and a legacy `{{password}}` in an old template renders this link), `{{login_url}}` (magic-login URL — wrap in your own `<a>` button). Blank → default template.
 
 Automations (mechanism 1):
 - `list_gift_automations()`, `get_gift_automation(automation_id)`.
@@ -193,9 +200,9 @@ Grant tracking / audit:
   draft snapshot; use before publishing. Does not change publish status.
 
 ## Courses
-- `list_courses(status?, category_id?)`, `get_course(course_id)`.
+- `list_courses(status?, category_id?)`, `get_course(course_id)` (returns `includes`, `outcomes`, `faqs`, `gallery_urls`, `sale_ends_at`, `sale_active`).
 - `create_course(title, level, slug?, category_id?, thumbnail_url?, description?, short_description?, …, sale_price?, discount_percent?)` — starts `draft`. To sell it, set it as a product's deliverable.
-- `update_course(course_id, …subset…)` — does NOT change status; use `publish_course`/`set_course_status`.
+- `update_course(course_id, …subset…, includes?, outcomes?, faqs?, gallery_urls?, sale_ends_at?)` — does NOT change status; use `publish_course`/`set_course_status`. Expert-page content: `includes`/`outcomes` = list of ≤10 strings (≤160 chars each), `faqs` = list of ≤12 `{q (≤200), a (≤1000)}`, `gallery_urls` = ≤6 http(s) URLs, `sale_ends_at` = ISO datetime (requires `discount_percent>0` and `sale_price>0`; after it the course is charged `original_price`). Lists are trimmed, blanks dropped, `[]` clears; `discount_percent=0` clears `sale_ends_at`.
 - `delete_course(course_id, confirm, force?)` ⚠ — permanent. Blocked if learners are enrolled (`deliverable_has_learners` — archive instead, no override). Blocked while a published funnel sells it (`deliverable_on_sale`) unless `force=true`, which also switches those products to external.
 
 ## Course categories
@@ -204,15 +211,23 @@ Grant tracking / audit:
 - `delete_course_category(category_id, confirm)` ⚠ — fails if any course still uses it.
 
 ## Course publish + status
-- `get_course_publish_readiness(course_id)` — checklist (course detail, curriculum, payment) + `can_publish` + `draft_lesson_count` (lessons publishing will auto-promote).
-- `publish_course(course_id, confirm)` ⚠ — gated by readiness; raises a tool error describing what's missing if not ready. Cascades to draft lessons.
+- `get_course_publish_readiness(course_id)` — checklist (course detail, curriculum, payment), each item `status` = `complete`|`warning`|`blocked`, + `can_publish` (false only when an item is `blocked`) + `draft_lesson_count` (lessons publishing will auto-promote; a quiz lesson without questions is not counted). A paid course with no payment account is a `warning` (action route `/admin/sales/payment-accounts`), not a blocker.
+- `publish_course(course_id, confirm)` ⚠ — gated by readiness; raises a tool error listing the `blocked` items if not ready. Cascades to draft lessons (a quiz lesson with no questions stays draft). Returns the course plus `warnings[]` (`"label: message"` per `warning` item, `[]` when none): a paid course with no payment account publishes but shows as "Coming soon" until a payment account (SePay or manual bank transfer) is set up — tell the operator and offer to set it up at `/admin/sales/payment-accounts`.
 - `set_course_status(course_id, status_value, confirm)` ⚠ — `draft`/`archived` only (use `publish_course` to publish). Archiving keeps learners' access but does NOT stop funnel sales; unpublish the funnels that still sell the course to stop selling.
 
 ## Course curriculum
 - `get_curriculum(course_id)` — sections + lessons + materials.
 - `create_course_section(course_id, title, description?, sort_order?)`, `update_course_section(section_id, …)`, `delete_course_section(section_id, confirm)` ⚠.
-- `create_lesson(section_id, title, lesson_type, lesson_status?, youtube_url?, pdf_url?, banner_url?, …)` — type: `text_lesson`|`pdf_lesson`|`video_lesson`; media via URL only, no file-upload tool.
-- `update_lesson(lesson_id, …subset…)`, `delete_lesson(lesson_id, confirm)` ⚠.
+- `create_lesson(section_id, title, lesson_type, lesson_status?, youtube_url?, pdf_url?, banner_url?, quiz?, …)` — type: `text_lesson`|`pdf_lesson`|`video_lesson`|`quiz_lesson`; media via URL only, no file-upload tool.
+- `update_lesson(lesson_id, …subset…, quiz?)`, `delete_lesson(lesson_id, confirm)` ⚠.
+- Quiz lessons (`lesson_type="quiz_lesson"`): pass `quiz` = `{intro?, mins (1-60), pass_score?, questions[≤30]}`; `pass_score` (0-100, default 70) = percent of graded questions needed to pass (learner sees "Đạt / Chưa đạt"; for the certificate a quiz needs the stricter of this and the course `min_quiz_score`). Question `type` is one of `single` `{q, options[2-6], answer: int index, context?, why?}`, `multi` `{q, options[2-6], answer: [int indexes, unique], why?}`, `tf` `{q, answer: bool, why?}`, `order` `{q, items[2-8] written in the CORRECT order (the player shuffles), why?}`, `scale` `{q, labels[exactly 5], why?}` (self-assessment, no right answer, not graded). A bad document (answer index out of range, wrong option/label count) is rejected with a 422 naming the field path. A quiz lesson needs ≥1 question to be published: publishing the course skips empty quiz lessons (they stay draft). `update_lesson` with `quiz` replaces the whole quiz document and keeps other `metadata` keys. Learners' answers are graded in the browser and stored per learner; grading data is only sent for lessons the learner can open.
+- Lessons carry `published_at` (first publish time, never cleared); the learner site marks lessons published in the last 30 days as "Mới" (new) for learners who enrolled before they were published.
+
+## Course certificates
+_Needs Courses. Mirrors admin course Settings › Certificate._
+- `get_course_certificate_settings(course_id)` → `{enabled, rule, min_quiz_score, template, lang, signer_name, signer_role}`. A course that never saved any returns the defaults (`enabled=false`, `rule='lessons_and_quizzes'`, `template='classic'`, `lang='vi'`, no signer).
+- `update_course_certificate_settings(course_id, enabled?, rule?, min_quiz_score?, template?, lang?, signer_name?, signer_role?)` — partial update, omitted fields keep their value; returns the saved settings. No `confirm` (sends nothing). Values: `rule` `lessons` (finish every non-quiz lesson) | `lessons_and_quizzes` (also every graded quiz at ≥ the stricter of its own `pass_score` and `min_quiz_score`, so a quiz shown "Chưa đạt" never counts; scale-only quizzes don't count); `min_quiz_score` 50|60|70|80|90 (floor); `template` `classic`|`minimal`|`pixel`|`seal`|`night`; `lang` (text printed on the certificate) `vi`|`en`; `signer_name` / `signer_role` ≤120 chars, `""` clears. An invalid value is a tool error and nothing is saved.
+- Issuing: one certificate per learner per course, code `LC-<year>-<5 digits>`, issued the first time an eligible learner with full access (not a preview seat) opens the certificate tab/page (`/courses-page/<slug>/certificate`); learners download it as PNG/PDF. Template and `lang` are frozen at issue; signer text follows the current settings. Settings changes never re-issue or revoke a certificate; `enabled=false` hides issued ones (records kept). No MCP tool lists or issues individual certificates.
 
 ## Course students & enrollment
 - `list_course_students(course_id, page?, page_size?, email?)` — read-only; current students (buyers) with learning progress; `email` is a substring filter.
